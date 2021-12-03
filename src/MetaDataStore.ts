@@ -10,7 +10,7 @@ export class MetaDataStore {
 
 	public static models: Map<string, ModelRegistration<any>> = new Map();
 
-	addModel(model: new (...args: any) => Model) {
+	addModel(model: new (...args: any) => Model<any>) {
 		if (MetaDataStore.models.has(model.name)) {
 			return;
 		}

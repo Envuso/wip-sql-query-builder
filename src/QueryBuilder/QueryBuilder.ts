@@ -23,7 +23,7 @@ enum QueryType {
 	SELECT = 'select',
 }
 
-export class QueryBuilder<T extends Model> {
+export class QueryBuilder<T extends Model<any>> {
 
 	private model: T;
 
@@ -50,7 +50,7 @@ export class QueryBuilder<T extends Model> {
 		return this;
 	}
 
-	where(key: keyof T, value: any): this {
+	where(key: (keyof T | string), value: any): this {
 		this.addBinding({
 			key   : key as string,
 			type  : BindingType.EQUALS,
@@ -60,8 +60,20 @@ export class QueryBuilder<T extends Model> {
 		return this;
 	}
 
-	insert(obj: Partial<T>) {
+	/**
+	 * Inserts a new row into the table
+	 *
+	 * Returns a full model instance if successful.
+	 *
+	 * "beforeCreate" & "afterCreate" model hooks will be called with this method.
+	 *
+	 * @param {Partial<T>} obj
+	 * @returns {Promise<T | null>}
+	 */
+	async insert(obj: Partial<T>) {
 		this.queryType = QueryType.INSERT;
+
+		obj = await this.model.hooks().callHook(ModelHookType.BEFORE_CREATE, obj);
 
 		this.addBinding({
 			key   : 'insert',
@@ -69,11 +81,29 @@ export class QueryBuilder<T extends Model> {
 			value : obj
 		});
 
+		const result = await MysqlDatabase.connection.query(this.toQueryData()) as mysql.OkPacket;
 
-		return MysqlDatabase.connection.query(this.toQueryData());
+		return await this.model.hooks().callHook(
+			ModelHookType.AFTER_CREATE,
+			await this.model.query().where('id', result.insertId).first()
+		);
 	}
 
-	async update(obj: Partial<T>) {
+	/**
+	 * This will call our "beforeUpdate" hook before running the update query.
+	 *
+	 * The returning value will be the amount of affected rows, not the models
+	 * with updated values.
+	 *
+	 * This method will not call "afterUpdate" model hooks, due to us not knowing which models
+	 * we actually updated correctly.
+	 *
+	 * If you want the afterUpdate hook to be called, or model instances returned, use Model.update() instead.
+	 *
+	 * @param {Partial<T>} obj
+	 * @returns {Promise<number>}
+	 */
+	async update(obj: Partial<T>): Promise<number> {
 		this.queryType = QueryType.UPDATE;
 
 		obj = await this.model.hooks().callHook(ModelHookType.BEFORE_UPDATE, obj);
@@ -86,21 +116,27 @@ export class QueryBuilder<T extends Model> {
 			});
 		}
 
-		const result = await MysqlDatabase.connection.query(this.toQueryData());
+		const result = await MysqlDatabase.connection.query(this.toQueryData()) as mysql.OkPacket;
 
-		return await this.model.hooks().callHook(ModelHookType.AFTER_UPDATE, result as T);
+		return result.affectedRows;//await this.model.hooks().callHook(ModelHookType.AFTER_UPDATE, result as T);
 	}
 
-	async first() {
-		const result = await this.take(1).get();
+	async first(): Promise<T | null> {
+		let result = await this.take(1).get();
 
-		return result[0] ?? null;
+		if (!result[0]) {
+			return null;
+		}
+
+		return this.model.hydrate(result[0]);
 	}
 
-	get() {
-		return MysqlDatabase.connection.query(
+	async get(): Promise<T[]> {
+		const results = await MysqlDatabase.connection.query(
 			this.toQueryData()
 		);
+
+		return results.map(result => this.model.hydrate(result)) as T[];
 	}
 
 	private getSelectBindings(): Binding[] {

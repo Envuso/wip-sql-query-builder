@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@types/node": "^16.11.7",
+    "locutus": "^2.0.15",
     "promise-mysql": "^5.0.4",
     "reflect-metadata": "^0.1.13"
   }

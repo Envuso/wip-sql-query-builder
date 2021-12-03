@@ -13,7 +13,7 @@ describe('Models', function () {
 			user     : 'root',
 			password : 'secret'
 		});
-	})
+	});
 
 	test('model is registered', () => {
 
@@ -24,7 +24,10 @@ describe('Models', function () {
 	});
 
 	test('basic query', async () => {
-		const t       = new TestUserModel();
+		const t = new TestUserModel();
+
+		await t.query().insert({username : 'sam'});
+		await t.query().insert({username : 'sam two', is_admin : 0});
 
 		const many    = await t.query().where('username', 'sam').get();
 		const manyTwo = await t.query().where('is_admin', 0).get();
@@ -34,7 +37,7 @@ describe('Models', function () {
 	});
 
 	test('insert query', async () => {
-		const t   = new TestUserModel();
+		const t = new TestUserModelWithHooks();
 
 		const res = await t.query()
 			.insert({
@@ -46,7 +49,7 @@ describe('Models', function () {
 
 	test('update query', async () => {
 
-		const t   = new TestUserModel();
+		const t = new TestUserModel();
 
 		const res = await t.query()
 			.where('username', 'Sam')
@@ -61,7 +64,7 @@ describe('Models', function () {
 
 	test('model hooks', async () => {
 
-		const t   = new TestUserModelWithHooks();
+		const t = new TestUserModelWithHooks();
 
 		const res = await t.query()
 			.where('username', 'Sam')

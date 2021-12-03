@@ -2,7 +2,7 @@ import {Model as ModelDefinition, Property} from "../../src/Model/Decorators/Mod
 import {Model} from "../../src/Model/Model";
 
 @ModelDefinition
-export class TestUserModelWithHooks extends Model {
+export class TestUserModelWithHooks extends Model<TestUserModelWithHooks> {
 
 	public tableName: string = 'testusermodel';
 
@@ -18,6 +18,19 @@ export class TestUserModelWithHooks extends Model {
 	@Property
 	updated_at: Date;
 
+	beforeCreate(model: Partial<TestUserModelWithHooks>) {
+		console.log('hi from before create', 'Model data being created: ', model);
+
+		model.created_at = new Date();
+
+		return model;
+	}
+
+	afterCreate(model: Partial<TestUserModelWithHooks>) {
+		console.log('hi from after create', model);
+
+		return model;
+	}
 	beforeUpdate(model: Partial<TestUserModelWithHooks>) {
 		console.log('hi from before update', 'Model data being updated: ', model);
 

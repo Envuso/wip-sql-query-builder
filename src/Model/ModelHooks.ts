@@ -9,7 +9,7 @@ export enum ModelHookType {
 	AFTER_UPDATE  = 'afterUpdate',
 }
 
-export class ModelHooks<T extends Model> {
+export class ModelHooks<T extends Model<any>> {
 
 	private model: T;
 
