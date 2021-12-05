@@ -2,11 +2,11 @@
   "compilerOptions": {
     "moduleResolution": "node",
     "lib": [
-      "ESNext",
+      "es6",
       "DOM"
     ],
     "module": "CommonJS",
-    "target": "ESNext",
+    "target": "es6",
     "importsNotUsedAsValues": "error",
     "isolatedModules": true,
     "resolveJsonModule": true,
@@ -24,6 +24,7 @@
     "typeRoots": [
       "node_modules/@types"
     ],
+    "outDir": "dist",
     "useDefineForClassFields": true,
     "declaration": false,
     "emitDeclarationOnly": false

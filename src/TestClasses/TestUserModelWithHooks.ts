@@ -1,10 +1,18 @@
-import {Model as ModelDefinition, Property} from "../../src/Model/Decorators/Model";
-import {Model} from "../../src/Model/Model";
+import {Model as ModelDefinition, Property} from "../Model/Decorators/Model";
+import {Model} from "../Model/Model";
+import {CastType, ModelCastRegistrations} from "../Model/Types";
 
 @ModelDefinition
 export class TestUserModelWithHooks extends Model<TestUserModelWithHooks> {
 
-	public tableName: string = 'testusermodel';
+	public tableName: string = 'test_user_models';
+
+	public casts: ModelCastRegistrations = {
+		is_admin : CastType.BOOL
+	};
+
+	@Property
+	id: number;
 
 	@Property
 	username: string;
@@ -31,6 +39,7 @@ export class TestUserModelWithHooks extends Model<TestUserModelWithHooks> {
 
 		return model;
 	}
+
 	beforeUpdate(model: Partial<TestUserModelWithHooks>) {
 		console.log('hi from before update', 'Model data being updated: ', model);
 
