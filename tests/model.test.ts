@@ -20,7 +20,7 @@ describe('Models', function () {
 	test('model is registered', () => {
 
 		const r             = MetaStore.getModels();
-		const testUserModel = MetaStore.getModel(TestUserModel);
+		const testUserModel = MetaStore.getModel<TestUserModel>(TestUserModel);
 		debugger
 
 	});
@@ -105,15 +105,13 @@ describe('Models', function () {
 
 		const t = new TestUserModelWithRelationship();
 
-		const r = t.getRelationships();
+		const r = t.getRelationshipDefinitions();
 
 		debugger
 
 	});
 
 	test('relationships eager loading', async () => {
-
-
 		const user = await TestUserModel.query().insert({
 			username : 'bruce',
 			is_admin : true,
@@ -130,20 +128,100 @@ describe('Models', function () {
 
 		const result = await TestUserModelWithRelationship.query()
 			.where('id', user.id)
-//			.with('books')
-//			.with('book')
+			.with('books')
+			.with('book')
 			.first();
 
-		const book  = result.book();
-		const books = result.books();
+		expect(result.book().id).toEqual(bookOne.id);
 
-		const bookId  = book.id;
-		const bookIds = books.map(b => {
-			return b.id;
+		expect(result.books().map(b => b.id)).toEqual([bookOne.id, bookTwo.id]);
+
+
+	});
+
+	test('refreshing model', async () => {
+		const user = await TestUserModel.query().insert({
+			username : 'bruce',
+			is_admin : true,
 		});
 
-		debugger
+		expect(user.is_admin).toEqual(true);
 
+		await TestUserModel.query()
+			.where('id', user.id)
+			.update({is_admin : false});
+
+		await user.refresh();
+
+		expect(user.is_admin).toEqual(false);
+
+	});
+
+	test('updating model', async () => {
+		const user = await TestUserModel.query().insert({
+			username : 'bruce',
+			is_admin : true,
+		});
+
+		expect(user.is_admin).toEqual(true);
+
+		await user.update({is_admin : false});
+
+		expect(user.is_admin).toEqual(false);
+
+		await user.refresh();
+
+		expect(user.is_admin).toEqual(false);
+	});
+
+	test('querying via relation', async () => {
+		const user = await TestUserModelWithRelationship.query().insert({
+			username : 'bruce #1',
+			is_admin : true,
+		});
+
+		const book = await TestBookModel.query().insert({
+			user_id : user.id,
+			title   : 'yeet'
+		});
+
+		const fetchedBook = await user.book()
+			.where('id', book.id)
+			.first();
+
+		expect(fetchedBook.id).toEqual(book.id);
+
+		fetchedBook.test('id');
+
+	});
+
+	test('deleting directly on the model', async () => {
+
+		const user = await TestUserModelWithRelationship.query().insert({
+			username : 'bruce #1',
+			is_admin : true,
+		});
+
+
+		const deleteResult = await user.delete();
+
+		expect(deleteResult).toBeTruthy();
+
+		expect(
+			await TestUserModelWithRelationship.query()
+				.where('id', user.id)
+				.first()
+		).toEqual(null);
+
+	});
+
+	test('aggregates', async () => {
+		const min   = await TestUserModel.query().min('id');
+		const max   = await TestUserModel.query().max('id');
+		const count = await TestUserModel.query().count('id');
+		const avg   = await TestUserModel.query().avg('id');
+		const sum   = await TestUserModel.query().sum('id');
+		debugger
 	});
 
 });

@@ -1,16 +1,17 @@
 import {HasMany, HasOne, Model as ModelDefinition, Property} from "../Model/Decorators/Model";
 import {Model} from "../Model/Model";
-import {CastType, ModelCastRegistrations} from "../Model/Types";
+import {CastType} from "../Model/Types";
 import {TestBookModel} from "./TestBookModel";
 
 @ModelDefinition
 export class TestUserModelWithRelationship extends Model<TestUserModelWithRelationship> {
 
-	public tableName: string = 'test_user_models';
-
-	public casts: ModelCastRegistrations = {
-		is_admin : CastType.BOOL
-	};
+	boot() {
+		this.setTable('test_user_models');
+		this.setCasts({
+			is_admin : CastType.BOOL
+		});
+	}
 
 	@Property
 	id: number;
@@ -27,12 +28,12 @@ export class TestUserModelWithRelationship extends Model<TestUserModelWithRelati
 	@Property
 	updated_at: Date;
 
-	@HasMany(TestBookModel, 'user_id', 'id')
+	@HasMany('TestBookModel', 'user_id', 'id')
 	books() {
 		return this.hasMany(TestBookModel);
 	}
 
-	@HasOne(TestBookModel, 'user_id', 'id')
+	@HasOne('TestBookModel', 'user_id', 'id')
 	book() {
 		return this.hasOne(TestBookModel);
 	}

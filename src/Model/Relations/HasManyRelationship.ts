@@ -1,13 +1,16 @@
 import type {Model} from "../Model";
+import {BaseRelation} from "./BaseRelation";
 
-export class HasManyRelationship<Current extends Model<any>, Related extends Model<any>> {
+export class HasManyRelationship<Current extends Model<any>, Related extends Model<any>> extends BaseRelation<Current, Related> {
 
 	private data: Related[] = [];
 
 	constructor(
-		public currentModel: Current,
-		public model: { new(...args: any[]): Related }
+		protected currentModel: Current,
+		protected model: { new(...args: any[]): Related }
 	) {
+		super(currentModel, model);
+
 		return new Proxy(this, {
 			get : this.__get,
 			set : this.__set,

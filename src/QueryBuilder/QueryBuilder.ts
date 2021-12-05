@@ -2,6 +2,7 @@ import * as mysql from "mysql";
 import {RelationshipType} from "../Model/Decorators/Types";
 import type {Model} from "../Model/Model";
 import {ModelHookType} from "../Model/ModelHooks";
+import type {SingleModelProp} from "../Model/Types";
 import {MysqlDatabase} from "../MysqlDatabase";
 
 type Binding = {
@@ -23,7 +24,17 @@ enum OperatorType {
 enum QueryType {
 	INSERT = 'insert',
 	UPDATE = 'update',
+	DELETE = 'delete',
 	SELECT = 'select',
+}
+
+enum AggregateType {
+	AVG     = 'avg',
+	AVERAGE = 'average',
+	COUNT   = 'count',
+	MIN     = 'min',
+	SUM     = 'sum',
+	MAX     = 'max',
 }
 
 type WhereType = 'AND' | 'OR';
@@ -41,31 +52,30 @@ type SelectBindings = {
 	OR: SelectBindingType[],
 }
 
+type OrderBindings = { key: string, direction: OrderDirection }
+
 export class QueryBuilder<T extends Model<any>> {
 
-	private model: T;
+	protected model: T;
 
 	private queryType: QueryType = QueryType.SELECT;
 
-	public table: string = null;
+	private table: string = null;
 
-	public limit: number = null;
+	private limit: number = null;
 
-	public selectBindings: SelectBindings = {
+	private selectBindings: SelectBindings = {
 		AND : [],
 		OR  : [],
 	};
 
-	public bindings: Binding[] = [];
+	private bindings: Binding[] = [];
 
-	public order: { key: string, direction: OrderDirection } = {
-		key       : 'id',
-		direction : 'ASC'
-	};
+	private order: OrderBindings[] = [];
 
 	constructor(param: T) {
 		this.model = param;
-		this.table = this.model.tableName;
+		this.table = this.model.getTable();
 	}
 
 	addBinding(binding: Binding) {
@@ -114,6 +124,63 @@ export class QueryBuilder<T extends Model<any>> {
 		this.model.eagerLoadRelation(relation as string);
 
 		return this;
+	}
+
+	public async loadAggregate(column: SingleModelProp<T>, type: AggregateType): Promise<number | null> {
+		const sql = mysql.format(`select ${type}(${column}) as aggregate from ??`, [
+			// column,
+			this.table,
+		]);
+
+
+		const result = await new QueryBuilder(this.model).runQuery(
+			{sql}, 'aggregate'
+		);
+
+		if (!result?.length) {
+			return null;
+		}
+
+		return result[0].aggregate ?? null;
+	}
+
+	min(column: SingleModelProp<T>): Promise<number | null> {
+		return this.loadAggregate(column, AggregateType.MIN);
+	}
+
+	max(column: SingleModelProp<T>): Promise<number | null> {
+		return this.loadAggregate(column, AggregateType.MAX);
+	}
+
+	avg(column: SingleModelProp<T>): Promise<number | null> {
+		return this.loadAggregate(column, AggregateType.AVG);
+	}
+
+	sum(column: SingleModelProp<T>): Promise<number | null> {
+		return this.loadAggregate(column, AggregateType.SUM);
+	}
+
+	count(column: SingleModelProp<T>): Promise<number | null> {
+		return this.loadAggregate(column, AggregateType.COUNT);
+	}
+
+	average(column: SingleModelProp<T>): Promise<number | null> {
+		return this.avg(column);
+	}
+
+	/**
+	 * "beforeDelete" & "afterDelete" model hooks will not be called with this method
+	 *
+	 * Use model.delete() instead.
+	 *
+	 * @returns {Promise<number>}
+	 */
+	public async delete(): Promise<number> {
+		this.queryType = QueryType.DELETE;
+
+		const result = await this.runQuery(this.toSql(), 'result');
+
+		return result.affectedRows;
 	}
 
 	/**
@@ -194,8 +261,8 @@ export class QueryBuilder<T extends Model<any>> {
 
 		if (this.model.hasRelationsToEagerLoad()) {
 
-			for (let relationshipName of this.model.relationsToEagerLoad) {
-				const relation = this.model.getRelationship(relationshipName);
+			for (let relationshipName of this.model.getRelationsToEagerLoad()) {
+				const relation = this.model.getRelationshipDefinition(relationshipName);
 				const modelIds = models.map(m => m[relation.localKey]);
 
 				const relatedData = await relation.model.query()
@@ -205,24 +272,24 @@ export class QueryBuilder<T extends Model<any>> {
 				models = models.map(model => {
 					const filter = r => r[relation.foreignKey] === model[relation.localKey];
 
-					model.relationsToEagerLoad = this.model.relationsToEagerLoad;
+					model.setRelationsToEagerLoad(this.model.getRelationsToEagerLoad());
 
 					// Set the resolved relation data onto this model.relations object
-					model.relations[relation.property] = (
+					model.setRelation(relation.property, (
 						relation.type === RelationshipType.HAS_MANY
 							? relatedData.filter(filter)
 							: relatedData.find(filter)
-					);
+					));
 
 					// Set the resolved relation data on the relation resolver
 					// For ex, if we have books() => return this.hasOne()
 					// We'll set the loaded relation data on the hasOne class
 					// Then we'll assign that hasOne class with it's result onto model.relations
 					const relationAccessor = model[relation.property]();
-					relationAccessor.data  = model.relations[relation.property];
+					relationAccessor.data  = model.getRelation(relation.property);
 
 					// Set the relation accessor(HasOneRelationship for ex) onto the relations object
-					model.relations[relation.property] = relationAccessor;
+					model.setRelation(relation.property, relationAccessor);
 
 					return model;
 				});
@@ -267,10 +334,14 @@ export class QueryBuilder<T extends Model<any>> {
 		return this.queryType === QueryType.SELECT;
 	}
 
-	async runQuery<T extends 'result' | 'data'>(
+	public isDeleteQuery() {
+		return this.queryType === QueryType.DELETE;
+	}
+
+	async runQuery<T extends 'result' | 'data' | 'aggregate'>(
 		query: mysql.QueryOptions,
 		type: T
-	): Promise<T extends 'result' ? mysql.OkPacket : any[]> {
+	): Promise<T extends 'result' ? mysql.OkPacket : T extends 'aggregate' ? { aggregate: number }[] : any[]> {
 		return MysqlDatabase.connection.query(query);
 	}
 
@@ -298,8 +369,12 @@ export class QueryBuilder<T extends Model<any>> {
 
 		}
 
-		//		const selectBindings = this.getSelectBindings() || [];
-		if (this.isSelectQuery() || this.isUpdateQuery()) {
+		if (this.isDeleteQuery()) {
+			baseQuery = [`DELETE FROM ??`];
+			// We don't need to push to parts, table name is already defined in there.
+		}
+
+		if (this.isSelectQuery() || this.isUpdateQuery() || this.isDeleteQuery()) {
 
 			// if we're doing an update query with a where clause, we need to append where.
 			// for example, imagine the following:
@@ -318,8 +393,20 @@ export class QueryBuilder<T extends Model<any>> {
 			}
 
 			if (!this.isUpdateQuery()) {
-				baseQuery.push(`ORDER BY ?? ${this.order.direction}`);
-				parts.push(this.order.key);
+
+				if (this.order.length) {
+					baseQuery.push(`ORDER BY`);
+
+					const orderBindings = [];
+
+					for (let orderBinding of this.order) {
+						orderBindings.push(`?? ${orderBinding.direction}`);
+						parts.push(orderBinding.key);
+					}
+
+					baseQuery.push(orderBindings.join(', '));
+				}
+
 
 				if (this.limit) {
 					baseQuery.push(`LIMIT ?`);
@@ -345,8 +432,7 @@ export class QueryBuilder<T extends Model<any>> {
 	}
 
 	public orderBy(id: string, direction: OrderDirection): this {
-		this.order.key       = id;
-		this.order.direction = direction;
+		this.order.push({key : id, direction : direction});
 
 		return this;
 	}
@@ -375,10 +461,10 @@ export class QueryBuilder<T extends Model<any>> {
 
 			if (bindings.length) {
 				if (selectBindingsKey === 'AND') {
-					compiledSections.push(`(${querySections.join(' AND ')}) `);
+					compiledSections.push(`(${querySections.join(' AND ')})`);
 				}
 				if (selectBindingsKey === 'OR') {
-					compiledSections.push(`OR (${querySections.join(' AND ')}) `);
+					compiledSections.push(`OR (${querySections.join(' AND ')})`);
 				}
 
 				queryBindings.push(...bindings);
@@ -390,4 +476,5 @@ export class QueryBuilder<T extends Model<any>> {
 			bindings : queryBindings,
 		};
 	}
+
 }

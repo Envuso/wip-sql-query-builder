@@ -1,10 +1,13 @@
+import pluralize from 'pluralize';
 import {toCamel, toSnake} from "ts-case-convert";
 import {MetaStore} from "../MetaData/MetaDataStore";
 import type {ModelMetaData} from "../MetaData/ModelMetaData";
 import {QueryBuilder} from "../QueryBuilder/QueryBuilder";
-import {ModelHooks} from "./ModelHooks";
+import type {RelationDefinition} from "./Decorators/Types";
+import {ModelHooks, ModelHookType} from "./ModelHooks";
 import {HasManyRelationship} from "./Relations/HasManyRelationship";
 import {HasOneRelationship} from "./Relations/HasOneRelationship";
+import type {ModelCastRegistrations} from "./Types";
 import {
 	CastType,
 	HasManyRelationAccessor,
@@ -13,11 +16,11 @@ import {
 	ModelCasing,
 	ModelGrammar,
 	ModelPlural,
+	ModelProps,
 	ModelRelationAttributesType,
-	ModelStatic
+	ModelStatic,
+	SingleModelProp,
 } from "./Types";
-import type {ModelCastRegistrations} from "./Types";
-import pluralize from 'pluralize';
 
 const array_intersect_key = require('locutus/php/array/array_intersect_key');
 const array_diff_key      = require('locutus/php/array/array_diff_key');
@@ -28,7 +31,7 @@ const array_key_exists    = require('locutus/php/array/array_key_exists');
 
 export class Model<T extends Model<any>> {
 
-	public modelGrammar: ModelGrammar = {
+	private modelGrammar: ModelGrammar = {
 		tableName            : 'snakecase',
 		tableNamePlural      : 'multiple',
 		properties           : 'snakecase',
@@ -40,49 +43,49 @@ export class Model<T extends Model<any>> {
 	 * model name or custom name defined by the developer.
 	 * @type {string}
 	 */
-	public tableName: string = null;
+	private tableName: string = null;
 
 	/**
 	 * The primary key property
 	 *
 	 * @type {string}
 	 */
-	public primaryKey: string = 'id';
+	private primaryKey: string = 'id';
 
 	/**
 	 * The type of the primary key property
 	 *
 	 * @type {string}
 	 */
-	public primaryKeyType: string = 'number';
+	private primaryKeyType: string = 'number';
 
 	/**
 	 * Are primary keys using auto increment?
 	 *
 	 * @type {boolean}
 	 */
-	public primaryKeyIncrementing: boolean = true;
+	private primaryKeyIncrementing: boolean = true;
 
 	/**
 	 * Model casts defined by the developer to convert to a type.
 	 *
 	 * @type {ModelCastRegistrations}
 	 */
-	public casts: ModelCastRegistrations = {};
+	private casts: ModelCastRegistrations = {};
 
 	/**
 	 * Properties marked as always visible when serialized.
 	 *
 	 * @type {string[]}
 	 */
-	public visible: string[] = [];
+	private visible: string[] = [];
 
 	/**
 	 * Properties marked as hidden when serialized, for example, passwords.
 	 *
 	 * @type {string[]}
 	 */
-	public hidden: string[] = [];
+	private hidden: string[] = [];
 
 	/**
 	 * The data on the model, although they're assigned to the underlying class
@@ -91,15 +94,15 @@ export class Model<T extends Model<any>> {
 	 *
 	 * @type {ModelAttributesType}
 	 */
-	public attributes: ModelAttributesType = {};
+	private attributes: ModelAttributesType = {};
 
-	public relations: ModelRelationAttributesType<T> = {};
-	public relationsToEagerLoad: string[]            = [];
-
+	private relations: ModelRelationAttributesType<T> = {};
+	private relationsToEagerLoad: string[]            = [];
 
 	constructor(attributes?: Partial<T>) {
-
 		this.setTable(this.getTable());
+
+		this.boot();
 
 		const proxiedModel = new Proxy(this, {
 			get : this.__get,
@@ -112,6 +115,12 @@ export class Model<T extends Model<any>> {
 
 		return proxiedModel as T;
 	}
+
+	boot() {
+
+	}
+
+	//region getters
 
 	getPrimaryKey() {
 		return this[this.primaryKey];
@@ -127,9 +136,48 @@ export class Model<T extends Model<any>> {
 		return this.convertPluralType(casedName, this.modelGrammar.tableNamePlural);
 	}
 
+	getRelationsToEagerLoad(): string[] {
+		return this.relationsToEagerLoad;
+	}
+
+	getRelations(): ModelRelationAttributesType<T> {
+		return this.relations;
+	}
+
+	getRelation(relation: string) {
+		return this.relations[relation] ?? null;
+	}
+
+	metaStore(): ModelMetaData<T> {
+		return MetaStore.getModelViaName<T>((this as any).constructor.name);
+	}
+
+	//endregion
+
+	//region setters
+
 	setTable(table: string) {
 		this.tableName = table;
 	}
+
+	setCasts(casts: Partial<{ [K in keyof ModelProps<T>]: CastType | any }>) {
+		this.casts = casts;
+	}
+
+	setRelationsToEagerLoad(relations: string[]) {
+		this.relationsToEagerLoad = relations;
+	}
+
+	setRelation(relation: string, value: any) {
+		this.relations[relation] = value;
+	}
+
+	//endregion
+
+	test(property: SingleModelProp<T>) {
+
+	}
+
 
 	private convertPluralType(key: string, plural: ModelPlural) {
 		switch (plural) {
@@ -167,8 +215,8 @@ export class Model<T extends Model<any>> {
 	 *
 	 * @returns {QueryBuilder<this>}
 	 */
-	query(): QueryBuilder<this> {
-		return new QueryBuilder(this);
+	query(): QueryBuilder<T> {
+		return new QueryBuilder<T>(this as any);
 	}
 
 	/**
@@ -180,9 +228,10 @@ export class Model<T extends Model<any>> {
 		return new (this.constructor as any)();
 	}
 
-	metaStore(): ModelMetaData<T> {
-		return MetaStore.getModel<T>(this.constructor as (new (...args: any) => Model<any>));
+	clone(): T {
+		return this.hydrate(this.attributes as Partial<T>);
 	}
+
 
 	/**
 	 * Hydrate the model from a raw js object
@@ -191,19 +240,7 @@ export class Model<T extends Model<any>> {
 	 * @returns {T}
 	 */
 	hydrate(data: Partial<T>): T {
-
-		const model = this.newInstance();
-
-		return model.fill(data);
-
-		// for (let key in data) {
-		//      model[key] = data[key];
-		//      We won't use setAttribute, since we're using proxies
-		//      The above will call the proxy, which calls setAttribute()
-		//      model.setAttribute(key, data[key]);
-		// }
-
-		// return model as T;
+		return this.newInstance().fill(data);
 	}
 
 	/**
@@ -228,13 +265,51 @@ export class Model<T extends Model<any>> {
 		return this.hidden || [];
 	}
 
+	async delete(): Promise<boolean> {
+		await this.hooks().callHook(ModelHookType.BEFORE_DELETE, this);
+
+		const result = await this.query()
+			.where('id', this.getPrimaryKey())
+			.delete();
+
+		await this.hooks().callHook(ModelHookType.AFTER_DELETE, this);
+
+		return result > 0;
+	}
+
+	//region Model updating
+
+	async refresh(): Promise<T> {
+		const fresh = await this.query()
+			.where('id', this.getPrimaryKey())
+			.first();
+
+		return this.fill(fresh.getAttributes());
+	}
+
+	async update(data: Partial<T>) {
+		let model = this.clone().fill(data);
+
+		model = await this.hooks().callHook(ModelHookType.BEFORE_UPDATE, model);
+
+		await this.query()
+			.where('id', this.getPrimaryKey())
+			.update(data as any);
+
+		model = await this.refresh();
+
+		return await this.hooks().callHook(ModelHookType.AFTER_UPDATE, model);
+	}
+
+	//endregion
+
 	//region Attributes
 
 	/**
 	 * Get all model properties
 	 */
-	getAttributes() {
-		// TODO
+	getAttributes(): T {
+		return this.attributes as T;
 	}
 
 	public setAttribute(key: string, value: any): void {
@@ -251,6 +326,44 @@ export class Model<T extends Model<any>> {
 		return this.attributes[key];
 
 	}
+
+	private getSerializableAttributes(values: any) {
+		if (this.getVisible().length > 0) {
+			values = array_intersect_key(values, array_flip(this.getVisible()));
+		}
+
+		if (this.getHidden().length > 0) {
+			values = array_diff_key(values, array_flip(this.getHidden()));
+		}
+
+		return values;
+	}
+
+	/**
+	 *
+	 * @param {Partial<T>} attributes
+	 * @private
+	 */
+	fill(attributes: Partial<T>): T {
+		for (let key in attributes) {
+
+			(this as any)[key] = attributes[key];
+
+			//			this.__set(this, key, attributes[key]);
+
+			//			this[key] = attributes[key];
+			//			model[key] = data[key];
+			// We won't use setAttribute, since we're using proxies
+			// The above will call the proxy, which calls setAttribute()
+			// model.setAttribute(key, data[key]);
+		}
+
+		return this as unknown as T;
+	}
+
+	//endregion Attributes
+
+	//region Attribute Casting
 
 	/**
 	 * Cast all model attributes based on the developers choice
@@ -290,41 +403,6 @@ export class Model<T extends Model<any>> {
 
 		return value;
 	}
-
-	private getSerializableAttributes(values: any) {
-		if (this.getVisible().length > 0) {
-			values = array_intersect_key(values, array_flip(this.getVisible()));
-		}
-
-		if (this.getHidden().length > 0) {
-			values = array_diff_key(values, array_flip(this.getHidden()));
-		}
-
-		return values;
-	}
-
-	/**
-	 *
-	 * @param {Partial<T>} attributes
-	 * @private
-	 */
-	fill(attributes: Partial<T>): T {
-		for (let key in attributes) {
-			this.__set(this, key, attributes[key]);
-
-			//			this[key] = attributes[key];
-			//			model[key] = data[key];
-			// We won't use setAttribute, since we're using proxies
-			// The above will call the proxy, which calls setAttribute()
-			// model.setAttribute(key, data[key]);
-		}
-
-		return this as unknown as T;
-	}
-
-	//endregion Attributes
-
-	//region Attribute Casting
 
 	/**
 	 * Get all of the defined casts on the model
@@ -373,27 +451,48 @@ export class Model<T extends Model<any>> {
 
 	//region Relationships
 
-	getRelationships() {
+	hasRelationshipDefinition(relation: string): boolean {
+		return this.metaStore().hasRelationship(relation);
+	}
+
+	getRelationshipDefinitions(): RelationDefinition[] {
 		return this.metaStore().getRelationships();
 	}
 
-	getRelationship(relation: string) {
+	getRelationshipDefinition(relation: string): RelationDefinition {
 		return this.metaStore().getRelationship(relation);
 	}
 
+	/**
+	 * Add the relationship name to the list of relationships to eager load
+	 *
+	 * @param {string} relation
+	 */
 	eagerLoadRelation(relation: string) {
-		if (!this.metaStore().hasRelationship(relation as string)) {
+		if (!this.hasRelationshipDefinition(relation)) {
 			return;
 		}
 
 		this.relationsToEagerLoad.push(relation as string);
 	}
 
+	/**
+	 * Do we have any relationships that we want to eager load?
+	 *
+	 * @returns {boolean}
+	 */
 	hasRelationsToEagerLoad() {
 		return this.relationsToEagerLoad.length > 0;
 	}
 
-	private relationIsLoaded(property: string): Boolean {
+	/**
+	 * Has the relationship been defined on our relations
+	 * object & been added to our relations to eager load array?
+	 *
+	 * @param {string} property
+	 * @returns {Boolean}
+	 */
+	relationIsLoaded(property: string): Boolean {
 		return this.relations[property] !== undefined && this.relationsToEagerLoad.includes(property);
 	}
 
@@ -401,12 +500,11 @@ export class Model<T extends Model<any>> {
 		return new HasManyRelationship(this, model) as unknown as HasManyRelationAccessor<T, FM>;
 	}
 
-	hasOne<FM extends Model<any>>(model: new (...args: any[]) => FM): HasOneRelationAccessor<T, FM> {
-		return new HasOneRelationship(this, model) as unknown as HasOneRelationAccessor<T, FM>;
+	hasOne<FM extends Model<any>>(model: new(...args: any[]) => FM): HasOneRelationAccessor<T, FM> {
+		return new HasOneRelationship(this, model as ModelStatic<FM>) as unknown as HasOneRelationAccessor<T, FM>;
 	}
 
 	//endregion Relationships
-
 
 	public static query<M extends Model<any>>(this: new () => M): QueryBuilder<M> {
 		return new this().query();
@@ -440,6 +538,10 @@ export class Model<T extends Model<any>> {
 		target.setAttribute(property, value);
 
 		return true;
+	}
+
+	static __getModelName(): string {
+		return this.name ?? (this.prototype as any).name ?? this.constructor.name;
 	}
 
 }

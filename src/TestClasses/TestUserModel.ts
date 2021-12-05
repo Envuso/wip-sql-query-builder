@@ -5,9 +5,11 @@ import {CastType, ModelCastRegistrations} from "../Model/Types";
 @ModelDefinition
 export class TestUserModel extends Model<TestUserModel> {
 
-	public casts: ModelCastRegistrations = {
-		is_admin : CastType.BOOL
-	};
+	boot() {
+		this.setCasts({
+			is_admin : CastType.BOOL
+		});
+	}
 
 	@Property
 	id: number;
@@ -18,4 +20,9 @@ export class TestUserModel extends Model<TestUserModel> {
 	@Property
 	is_admin: boolean | number;
 
+	@Property
+	created_at: Date;
+
+	@Property
+	updated_at: Date;
 }

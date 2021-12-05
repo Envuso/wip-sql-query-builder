@@ -45,6 +45,7 @@ export interface ModelStatic<T extends Model<any>> {
 
 	//	new(attributes?: Partial<T>): T;
 	//	(): T;
+	new(attributes?: Partial<T>): T;
 
 	query(): QueryBuilder<T>;
 }
@@ -56,5 +57,19 @@ export type ModelRelationAttributesType<T extends Model<any>> = {
 	[key: string]: ModelRelatedData<T, any>
 };
 
-export type HasOneRelationAccessor<T extends Model<any>, R extends Model<any>> = R & HasOneRelationship<T, R>;
-export type HasManyRelationAccessor<T extends Model<any>, R extends Model<any>> = R[] & HasManyRelationship<T, R>;
+export type HasOneRelationAccessor<T extends Model<any>, R extends Model<any>> = R & QueryBuilder<R> & HasOneRelationship<T, R>;
+export type HasManyRelationAccessor<T extends Model<any>, R extends Model<any>> = R[] & QueryBuilder<R> & HasManyRelationship<T, R>;
+
+
+type ModelPropertyNames<T> = {
+	[K in keyof T]: T[K] extends Function ? never : K;
+}[keyof T];
+
+export type ModelPropertiesOnly<T> = {
+	[P in ModelPropertyNames<T>]: T[P] extends object ? ModelProps<T[P]> : T[P]
+};
+export type ModelProps<T> = ModelPropertiesOnly<T>;
+export type ArrayOfModelProps<T> = (keyof ModelProps<T>)[];
+export type SingleModelProp<T> = keyof ModelProps<T>;
+
+

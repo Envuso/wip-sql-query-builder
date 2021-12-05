@@ -5,11 +5,12 @@ import {CastType, ModelCastRegistrations} from "../Model/Types";
 @ModelDefinition
 export class TestUserModelWithHooks extends Model<TestUserModelWithHooks> {
 
-	public tableName: string = 'test_user_models';
-
-	public casts: ModelCastRegistrations = {
-		is_admin : CastType.BOOL
-	};
+	boot() {
+		this.setTable('test_user_models');
+		this.setCasts({
+			is_admin : CastType.BOOL
+		});
+	}
 
 	@Property
 	id: number;
